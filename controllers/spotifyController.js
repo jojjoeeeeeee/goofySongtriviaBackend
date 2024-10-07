@@ -1,6 +1,5 @@
 const spotifyService = require("../services/spotifyService");
 const config = require("../config");
-const querystring = require("querystring");
 const axios = require("axios");
 const { getGameRoom } = require('../models/gameRoom');
 
@@ -12,15 +11,20 @@ exports.authSpotify = (req, res) => {
 exports.callback = async (req, res) => {
   const { code } = req.query;
   try {
-    const tokenResponse = await axios.post(
-      config.constant.SPOTIFY_TOKEN_URL,
-      querystring.stringify({
+    const params = new URLSearchParams({
         grant_type: "authorization_code",
         code,
         redirect_uri: config.constant.SPOTIFY_REDIRECT_URI,
         client_id: config.constant.SPOTIFY_CLIENT_ID,
         client_secret: config.constant.SPOTIFY_CLIENT_SECRET,
-      }),
+      });
+      
+    // To get the string format of the URL parameters:
+    const paramString = params.toString();
+      
+    const tokenResponse = await axios.post(
+      config.constant.SPOTIFY_TOKEN_URL,
+      paramString,
       {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
