@@ -199,7 +199,7 @@ const handleDisconnect = async (socket, io, findRoomBySocketId, deleteGameRoom) 
       roomData.userList = roomData.userList.filter((p) => p.id !== socket.id);
       io.to(roomCode).emit("getPlayer", roomData.userList);
       console.log(`Player ${socket.id} removed from room ${roomCode}.`);
-
+    } else {
       if (roomData.userList.length === 0) {
         deleteGameRoom(roomCode);
         io.in(roomCode).socketsLeave(roomCode);
