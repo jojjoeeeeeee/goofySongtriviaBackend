@@ -5,14 +5,17 @@ const axios = require("axios");
 const querystring = require("querystring");
 const cors = require("cors");
 
+require('dotenv').config();
+
 const app = express();
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 5000;
+const ORIGIN_DOMAIN = process.env.ORIGIN_DOMAIN;
 
 app.use(
   cors({
-    origin: "http://jojjoeeeeeee.trueddns.com:53387",
+    origin: ORIGIN_DOMAIN,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -21,7 +24,7 @@ app.use(
 
 const io = socketIo(server, {
   cors: {
-    origin: "http://jojjoeeeeeee.trueddns.com:53387",
+    origin: ORIGIN_DOMAIN,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -29,9 +32,9 @@ const io = socketIo(server, {
 });
 
 // Spotify credentials
-const SPOTIFY_CLIENT_ID = "136b45ab12ee44ba8c4ac1799d6af215";
-const SPOTIFY_CLIENT_SECRET = "e1279dd8428146648e0c3c3e8cb80db2";
-const SPOTIFY_REDIRECT_URI = "http://jojjoeeeeeee.trueddns.com:53386/callback";
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SPOTIFY_API_URL = "https://api.spotify.com/v1";
@@ -123,24 +126,6 @@ app.get("/api/spotify/playlists", async (req, res) => {
     res.status(500).send("Error fetching playlists");
   }
 });
-
-// app.get("/api/spotify/playlist/tracks", async (req, res) => {
-//   const { room_code, access_token, playlist_id } = req.query;
-//   const room = gameRooms.get(roomCode);
-//   try {
-//     const response = await axios.get(
-//       `${SPOTIFY_API_URL}/playlists/${playlist_id}/tracks`,
-//       {
-//         headers: {
-//           Authorization: `Bearer ${access_token}`,
-//         },
-//       }
-//     );
-//     res.json(response.data);
-//   } catch (error) {
-//     res.status(500).send("Error fetching playlist tracks");
-//   }
-// });
 
 const fetchPlaylistTracks = async (room, playlist_id) => {
   const response = await axios.get(
