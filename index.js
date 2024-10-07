@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: "http://jojjoeeeeeee.trueddns.com:53387", // Replace with your client’s origin
+    origin: "http://jojjoeeeeeee.trueddns.com:53387",
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -21,7 +21,7 @@ app.use(
 
 const io = socketIo(server, {
   cors: {
-    origin: "http://jojjoeeeeeee.trueddns.com:53387", // Replace with your client’s origin
+    origin: "http://jojjoeeeeeee.trueddns.com:53387",
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -36,20 +36,16 @@ const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
 const SPOTIFY_API_URL = "https://api.spotify.com/v1";
 
-var userList = [];
 const connectedSockets = new Map();
 
-var sessionAccessToken = "";
-var tempSelectedPlaylistId = "";
-var sessionUserId = "";
 
-var isGameStarted = false;
-var randomQuestionData = [];
-var onlyQuestionData = [];
-var currentQuestion = 0;
-var preQuestionTimer = 5;
-var questionTimer = 15;
-var roundPlayerCorrectCount = 0;
+// Store for all game rooms
+const gameRooms = new Map();
+
+// Helper function to generate an 8-character alphanumeric room code
+const generateRoomCode = () => {
+  return Math.random().toString(36).substring(2, 10).toUpperCase();
+};
 
 app.get("/auth/spotify", (req, res) => {
   const authUrl = `${SPOTIFY_AUTH_URL}?client_id=${SPOTIFY_CLIENT_ID}&response_type=code&redirect_uri=${SPOTIFY_REDIRECT_URI}&scope=playlist-read-private%20user-read-private%20streaming`;
@@ -77,7 +73,6 @@ app.get("/callback", async (req, res) => {
     );
 
     const { access_token } = tokenResponse.data;
-    sessionAccessToken = access_token;
     res.redirect(
       `http://jojjoeeeeeee.trueddns.com:53387/?access_token=${access_token}`
     );
@@ -87,7 +82,8 @@ app.get("/callback", async (req, res) => {
 });
 
 app.get("/api/spotify/user", async (req, res) => {
-  const { access_token } = req.query;
+  const { room_code, access_token } = req.query;
+  const room = gameRooms.get(room_code);
   try {
     const response = await axios.get(`${SPOTIFY_API_URL}/me`, {
       headers: {
@@ -95,9 +91,9 @@ app.get("/api/spotify/user", async (req, res) => {
       },
     });
     console.log("fetch user:", response.data.id);
-    if (sessionUserId === "") {
+    if (room.sessionUserId === "") {
       console.log("set user id", response.data.id);
-      sessionUserId = response.data.id;
+      room.sessionUserId = response.data.id;
     }
     res.json(response.data);
   } catch (error) {
@@ -107,14 +103,15 @@ app.get("/api/spotify/user", async (req, res) => {
 });
 
 app.get("/api/spotify/playlists", async (req, res) => {
-  const { access_token } = req.query;
+  const { room_code, access_token } = req.query;
+  const room = gameRooms.get(room_code);
   try {
     console.log(
       "fetch playlist:",
-      `${SPOTIFY_API_URL}/users/${sessionUserId}/playlists`
+      `${SPOTIFY_API_URL}/users/${room.sessionUserId}/playlists`
     );
     const response = await axios.get(
-      `${SPOTIFY_API_URL}/users/${sessionUserId}/playlists`,
+      `${SPOTIFY_API_URL}/users/${room.sessionUserId}/playlists`,
       {
         headers: {
           Authorization: `Bearer ${access_token}`,
@@ -127,60 +124,60 @@ app.get("/api/spotify/playlists", async (req, res) => {
   }
 });
 
-app.get("/api/spotify/playlist/tracks", async (req, res) => {
-  const { access_token, playlist_id } = req.query;
-  try {
-    const response = await axios.get(
-      `${SPOTIFY_API_URL}/playlists/${playlist_id}/tracks`,
-      {
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-        },
-      }
-    );
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).send("Error fetching playlist tracks");
-  }
-});
+// app.get("/api/spotify/playlist/tracks", async (req, res) => {
+//   const { room_code, access_token, playlist_id } = req.query;
+//   const room = gameRooms.get(roomCode);
+//   try {
+//     const response = await axios.get(
+//       `${SPOTIFY_API_URL}/playlists/${playlist_id}/tracks`,
+//       {
+//         headers: {
+//           Authorization: `Bearer ${access_token}`,
+//         },
+//       }
+//     );
+//     res.json(response.data);
+//   } catch (error) {
+//     res.status(500).send("Error fetching playlist tracks");
+//   }
+// });
 
-const fetchPlaylistTracks = async (playlist_id) => {
+const fetchPlaylistTracks = async (room, playlist_id) => {
   const response = await axios.get(
     `${SPOTIFY_API_URL}/playlists/${playlist_id}/tracks`,
     {
       headers: {
-        Authorization: `Bearer ${sessionAccessToken}`,
+        Authorization: `Bearer ${room.sessionAccessToken}`,
       },
     }
   );
   return response.data.items;
 };
 
-const handleStartGameQuestion = async () => {
-  currentQuestion = 0;
-  const itemsData = await fetchPlaylistTracks(tempSelectedPlaylistId);
+// Handle starting a game in a specific room
+const handleStartGameQuestion = async (roomCode) => {
+  const room = gameRooms.get(roomCode);
+  room.currentQuestion = 0;
+
+  const itemsData = await fetchPlaylistTracks(room, room.tempSelectedPlaylistId);
   const mappedTracksData = itemsData
-    .filter((item) => item.track.preview_url !== null) // Filter out items where preview_url is null
-    .map((item, index) => {
-      return {
-        id: index,
-        title: item.track.name,
-        artist: item.track.artists.map((artist) => artist.name),
-        audioUrl: item.track.preview_url,
-        image: item.track.album.images[0].url,
-      };
-    });
-  const randomQuestion = getRandomQuestions(mappedTracksData, 10); //change question amount here
-  randomQuestionData = randomQuestion;
-  const onlyQuestion = randomQuestion.map((item) => {
-    return {
-      id: item.id,
-      question: item.question,
-      choices: item.choices,
-      audioUrl: item.audioUrl,
-    };
-  });
-  onlyQuestionData = onlyQuestion;
+    .filter((item) => item.track.preview_url !== null)
+    .map((item, index) => ({
+      id: index,
+      title: item.track.name,
+      artist: item.track.artists.map((artist) => artist.name),
+      audioUrl: item.track.preview_url,
+      image: item.track.album.images[0].url,
+    }));
+
+  const randomQuestion = getRandomQuestions(mappedTracksData, 10);
+  room.randomQuestionData = randomQuestion;
+  room.onlyQuestionData = randomQuestion.map((item) => ({
+    id: item.id,
+    question: item.question,
+    choices: item.choices,
+    audioUrl: item.audioUrl,
+  }));
 };
 
 const getRandomQuestions = (data, numQuestions) => {
@@ -224,27 +221,26 @@ const getRandomQuestions = (data, numQuestions) => {
   });
 };
 
-const handleGetQuestion = () => {
-  if (currentQuestion < onlyQuestionData.length) {
+const handleGetQuestion = async (roomCode) => {
+  const room = gameRooms.get(roomCode);
+
+  if (room.currentQuestion < room.onlyQuestionData.length) {
     try {
-      console.log("-----------------");
-      console.log("getQuestion", onlyQuestionData[currentQuestion]);
-      console.log("answer", randomQuestionData[currentQuestion].correctAnswer);
-      io.emit("onGetQuestion", { trivia: onlyQuestionData[currentQuestion] });
-      io.emit("getPlayer", userList);
-      currentQuestion += 1;
-      roundPlayerCorrectCount = userList.length;
+      console.log(`-----------------\n getQuestion roomCode: ${roomCode}`, room.onlyQuestionData[room.currentQuestion] , `\nanswer roomCode: ${roomCode}`, room.randomQuestionData[room.currentQuestion].correctAnswer, "\n -----------------")
+      io.to(roomCode).emit("onGetQuestion", { trivia: room.onlyQuestionData[room.currentQuestion] });
+      io.to(roomCode).emit("getPlayer", room.userList);
+      room.currentQuestion += 1;
+      room.roundPlayerCorrectCount = room.userList.length;
 
       let timer;
       clearInterval(timer);
-      var seconds = questionTimer + preQuestionTimer + 1;
+      var seconds = room.questionTimer + room.preQuestionTimer + 1;
       timer = setInterval(() => {
-        console.log("countdown: ", seconds);
+        console.log(`countdown roomCode: ${roomCode}`, seconds);
         seconds -= 1;
 
         if (seconds === 0) {
-          console.log("auto get new question");
-          handleGetQuestion();
+          handleGetQuestion(roomCode);
           clearInterval(timer);
         }
       }, 1000);
@@ -254,9 +250,9 @@ const handleGetQuestion = () => {
       console.error("Error retrieving question:", error);
     }
   } else {
-    console.log("No more questions available.");
-    const [topThree, remaining] = splitTopThree(userList)
-    io.emit("onGameEnd", {topPlayers: topThree, players: remaining});
+    console.log(`No more questions available. roomCode: ${roomCode}`);
+    const [topThree, remaining] = splitTopThree(room.userList)
+    io.to(roomCode).emit("onGameEnd", {topPlayers: topThree, players: remaining});
   }
 };
 
@@ -275,143 +271,208 @@ const splitTopThree = (sortedArray) => {
   return [topThree, remaining];
 }
 
-const resetGame = () => {
-  io.emit("onResetGame", {songList: randomQuestionData});
+const resetGame = (roomCode) => {
+  const room = gameRooms.get(roomCode);
+  room.isGameStarted = false;
 
-  isGameStarted = false;
-  randomQuestionData = [];
-  onlyQuestionData = [];
-  currentQuestion = 0;
-  const updatedUserList = userList.map((user) => ({
+  io.to(roomCode).emit("onResetGame", {songList: room.randomQuestionData});
+
+  room.randomQuestionData = [];
+  room.onlyQuestionData = [];
+  room.currentQuestion = 0;
+  const updatedUserList = room.userList.map((user) => ({
     ...user,
     score: 0,
   }));
   
-  userList = updatedUserList;
+  room.userList = updatedUserList;
 
   setTimeout(() => {
-    io.emit("getPlayer", userList);
+    io.to(roomCode).emit("getPlayer", room.userList);
   }, 800);
+};
+
+// Find the room of a particular socket
+const findRoomBySocketId = (socketId) => {
+  for (const [roomCode, roomData] of gameRooms) {
+    const player = roomData.userList.find((user) => user.id === socketId);
+    if (player) {
+      return { roomCode, roomData };
+    }
+  }
+  return null;
 };
 
 io.on("connection", (socket) => {
   console.log("New player connected:", socket.id);
   connectedSockets.set(socket.id, socket);
 
-  socket.on("searchSession", async () => {
-    if (!isGameStarted) {
+  socket.on("createRoom", async (data) => {
+    const { accessToken } = data;
+    if (accessToken) {
+      const roomCode = generateRoomCode();
+      gameRooms.set(roomCode, {
+        userList: [],
+        sessionAccessToken: accessToken,
+        tempSelectedPlaylistId: "",
+        sessionUserId: "",
+        isGameStarted: false,
+        randomQuestionData: [],
+        onlyQuestionData: [],
+        currentQuestion: 0,
+        preQuestionTimer: 5,
+        questionTimer: 15,
+        roundPlayerCorrectCount: 0,
+      });
+      socket.join(roomCode);
+      io.to(socket.id).emit("roomCreated", { roomCode });
+      console.log(`Room ${roomCode} created.`);
+    }
+  });
+
+  socket.on("searchSession", async (data) => {
+    const { roomCode } = data;
+    if (!gameRooms.has(roomCode)) {
+      io.to(socket.id).emit("roomNotFound");
+      return;
+    }
+
+    const room = gameRooms.get(roomCode);
+
+    socket.join(roomCode);
+    if (!room.isGameStarted) {
       console.log(`id ${socket.id} search session`);
-      io.emit("getSession", {
-        userList: userList,
-        accessToken: sessionAccessToken,
+      io.to(roomCode).emit("getSession", {
+        userList: room.userList,
+        accessToken: room.sessionAccessToken,
       });
     } else {
-      io.emit("gameInProgress");
+      io.to(roomCode).emit("gameInProgress", { roomCode: roomCode });
     }
   });
 
   socket.on("joinGame", async (data) => {
-    const { username, avatarDataUri } = data;
-    const matchingPlayers = userList.filter(
-      (player) => player.id === socket.id
-    );
+    const { roomCode, username, avatarDataUri } = data;
+    if (!gameRooms.has(roomCode)) {
+      io.to(socket.id).emit("roomNotFound");
+      return;
+    }
+    const room = gameRooms.get(roomCode);
+    const matchingPlayers = room.userList.filter((player) => player.id === socket.id);
     if (matchingPlayers.length >= 0) {
-      const matchUsernameIndex = userList.findIndex(
+      const matchUsernameIndex = room.userList.findIndex(
         (player) => player.username === username
       );
       if (matchUsernameIndex !== -1) {
         if (
-          userList[matchUsernameIndex].host &&
-          !connectedSockets.has(userList[matchUsernameIndex].id)
+          room.userList[matchUsernameIndex].host &&
+          !connectedSockets.has(room.userList[matchUsernameIndex].id)
         ) {
-          userList[matchUsernameIndex].id = socket.id;
+          room.userList[matchUsernameIndex].id = socket.id;
         }
       } else {
-        userList.push({
+        room.userList.push({
           id: socket.id,
           avatarDataUri: avatarDataUri,
           username: username,
-          host: userList.length === 0 ? true : false,
+          host: room.userList.length === 0,
           score: 0,
         });
       }
-      io.emit("getPlayer", userList);
-      if (tempSelectedPlaylistId !== "") {
-        io.emit("onSelectedPlaylist", tempSelectedPlaylistId);
+      
+      io.to(roomCode).emit("getPlayer", room.userList);
+      if (room.tempSelectedPlaylistId !== "") {
+        io.to(roomCode).emit("onSelectedPlaylist", room.tempSelectedPlaylistId);
       }
-      console.log(`id ${socket.id} join room`);
+      console.log(`Player ${username} joined room ${roomCode}`);
     }
   });
 
   socket.on("selectPlaylist", async (data) => {
-    const { playlistId } = data;
-    const matchingPlayers = userList.filter(
-      (player) => player.id === socket.id
-    );
+    const { roomCode, playlistId } = data;
+    if (!gameRooms.has(roomCode)) {
+      io.to(socket.id).emit("roomNotFound");
+      return;
+    }
+    const room = gameRooms.get(roomCode);
+    const matchingPlayers = room.userList.filter((player) => player.id === socket.id);
     if (matchingPlayers.length >= 0) {
-      const matchUsernameIndex = userList.findIndex(
+      const matchUsernameIndex = room.userList.findIndex(
         (player) => matchingPlayers[0] && matchingPlayers[0].username && player.username === matchingPlayers[0].username
       );
       if (matchUsernameIndex !== -1) {
-        if (userList[matchUsernameIndex].host) {
-          tempSelectedPlaylistId = playlistId;
-          io.emit("onSelectedPlaylist", tempSelectedPlaylistId);
+        if (room.userList[matchUsernameIndex].host) {
+          room.tempSelectedPlaylistId = playlistId;
+          io.to(roomCode).emit("onSelectedPlaylist", room.tempSelectedPlaylistId);
           console.log(
-            `id ${socket.id} set playlist id`,
-            tempSelectedPlaylistId
+            `id ${socket.id} set playlist id roomCode: ${roomCode}`,
+            room.tempSelectedPlaylistId
           );
         }
       }
     }
   });
 
-  socket.on("startGame", async () => {
-    if (!isGameStarted) {
-      isGameStarted = true;
-      console.log("startGame");
-      await handleStartGameQuestion();
+  socket.on("startGame", async (data) => {
+    const { roomCode } = data;
+    if (!gameRooms.has(roomCode)) {
+      io.to(socket.id).emit("roomNotFound");
+      return;
+    }
+    const room = gameRooms.get(roomCode);
+    if (!room.isGameStarted) {
+      room.isGameStarted = true;
+      console.log(`startGame roomCode: ${roomCode}`);
+      await handleStartGameQuestion(roomCode);
       setTimeout(() => {
-        console.log("getQuestion on start");
-        handleGetQuestion();
+        console.log(`getQuestion on start roomCode: ${roomCode}`);
+        handleGetQuestion(roomCode);
       }, 11000);
-      io.emit("onStartGameCountDown");
+      io.to(roomCode).emit("onStartGameCountDown");
     }
   });
 
-  socket.on("getQuestion", () => {
-    handleGetQuestion();
+  socket.on("getQuestion", (data) => {
+    const { roomCode } = data;
+    handleGetQuestion(roomCode);
   });
 
   socket.on("submitAnswer", (data) => {
-    const { answer, timeRemain } = data;
-    const matchingPlayers = userList.filter(
+    const { roomCode, answer, timeRemain } = data;
+    if (!gameRooms.has(roomCode)) {
+      io.to(socket.id).emit("roomNotFound");
+      return;
+    }
+
+    const room = gameRooms.get(roomCode);
+    const matchingPlayers = room.userList.filter(
       (player) => player.id === socket.id
     );
     if (matchingPlayers.length >= 0) {
-      const matchUsernameIndex = userList.findIndex(
+      const matchUsernameIndex = room.userList.findIndex(
         (player) => matchingPlayers[0] && matchingPlayers[0].username && player.username === matchingPlayers[0].username
       );
       if (matchUsernameIndex !== -1) {
-        if (randomQuestionData[currentQuestion - 1].correctAnswer === answer) {
+        if (room.randomQuestionData[room.currentQuestion - 1].correctAnswer === answer) {
           var roundScore = Math.ceil(
             100 +
-              ((timeRemain / questionTimer) *
+              ((timeRemain /room. questionTimer) *
                 50 *
-                currentQuestion *
-                roundPlayerCorrectCount) /
-                userList.length
+                room.currentQuestion *
+                room.roundPlayerCorrectCount) /
+                room.userList.length
           );
-          userList[matchUsernameIndex].score += roundScore;
-          userList.sort((a, b) => b.score - a.score);
-          roundPlayerCorrectCount -= 1;
+          room.userList[matchUsernameIndex].score += roundScore;
+          room.userList.sort((a, b) => b.score - a.score);
+          room.roundPlayerCorrectCount -= 1;
           io.to(socket.id).emit("onSubmitAnswer", {
-            id: currentQuestion,
+            id: room.currentQuestion,
             roundScore,
             isCorrect: true,
           });
         } else {
           io.to(socket.id).emit("onSubmitAnswer", {
-            id: currentQuestion,
+            id: room.currentQuestion,
             roundScore: 0,
             isCorrect: false,
           });
@@ -420,33 +481,48 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("onGameEndGetSongList", () => {
-    //getSong list and move reset game to reset socket
-    if (isGameStarted) {
-      resetGame();
+  socket.on("onGameEndGetSongList", (data) => {
+    const { roomCode } = data;
+    const room = gameRooms.get(roomCode);
+    if (room.isGameStarted) {
+      resetGame(roomCode);
     }
   })
 
   socket.on("disconnect", async () => {
     console.log("Player disconnected:", socket.id);
-    const matchingPlayers = userList.filter(
-      (player) => player.id === socket.id
-    );
-    if (matchingPlayers.length > 0) {
-      if (!matchingPlayers[0].host) {
-        userList = userList.filter((player) => player.id !== socket.id);
-        io.emit("getPlayer", userList);
+    const roomInfo = findRoomBySocketId(socket.id);
+
+    if (roomInfo) {
+      const { roomCode, roomData } = roomInfo;
+      const player = roomData.userList.find((p) => p.id === socket.id);
+
+      if (!player.host) {
+        roomData.userList = roomData.userList.filter((p) => p.id !== socket.id);
+        io.to(roomCode).emit("getPlayer", roomData.userList);
+        console.log(`Player ${socket.id} removed from room ${roomCode}.`);
+
+        if (roomData.userList.length === 0) {
+          gameRooms.delete(roomCode);
+          io.in(roomCode).socketsLeave(roomCode);
+        }
       }
     }
+
     connectedSockets.delete(socket.id);
   });
 
   socket.on("hostDisconnect", async () => {
-    userList = []
-    sessionUserId = ""
-    io.emit("getPlayer", userList);
-    connectedSockets.clear()
+    const roomInfo = findRoomBySocketId(socket.id);
+    if (roomInfo) {
+      const { roomCode } = roomInfo;
+      console.log(`Host ${socket.id} explicitly disconnected. Closing room ${roomCode}.`);
+      io.to(roomCode).emit("hostDisconnected");
+      gameRooms.delete(roomCode); // Remove the room
+      io.in(roomCode).socketsLeave(roomCode); // Disconnect all players in the room
+    }
   });
+
 });
 
 server.listen(PORT, () => {
