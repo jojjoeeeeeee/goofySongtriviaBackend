@@ -14,7 +14,10 @@ const handleStartGameQuestion = async (roomCode) => {
     room.sessionAccessToken
   );
 
-  console.log(`roomCode ${roomCode} All question log: ${itemsData}`)
+  console.log(`roomCode ${roomCode} All question log:`)
+  itemsData.array.forEach(e => {
+    console.log(JSON.stringify(e, null, 2))
+  });
   const mappedTracksData = itemsData
     .filter((item) => item.track.preview_url !== null)
     .map((item, index) => ({
@@ -25,7 +28,7 @@ const handleStartGameQuestion = async (roomCode) => {
       image: item.track.album.images[0].url,
     }));
   
-  console.log(`roomCode ${roomCode} All question log: ${mappedTracksData}`)
+  console.log(`roomCode ${roomCode} All map question log: ${mappedTracksData}`)
 
   const randomQuestion = helper.getRandomQuestions(mappedTracksData, 10);
   room.randomQuestionData = randomQuestion;
