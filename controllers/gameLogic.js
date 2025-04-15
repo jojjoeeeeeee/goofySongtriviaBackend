@@ -13,6 +13,8 @@ const handleStartGameQuestion = async (roomCode) => {
     room.tempSelectedPlaylistId,
     room.sessionAccessToken
   );
+
+  console.log(`roomCode ${roomCode} All question log: ${itemsData}`)
   const mappedTracksData = itemsData
     .filter((item) => item.track.preview_url !== null)
     .map((item, index) => ({
@@ -22,6 +24,8 @@ const handleStartGameQuestion = async (roomCode) => {
       audioUrl: item.track.preview_url,
       image: item.track.album.images[0].url,
     }));
+  
+  console.log(`roomCode ${roomCode} All question log: ${mappedTracksData}`)
 
   const randomQuestion = helper.getRandomQuestions(mappedTracksData, 10);
   room.randomQuestionData = randomQuestion;
