@@ -15,7 +15,7 @@ const handleStartGameQuestion = async (roomCode) => {
   );
 
   console.log(`roomCode ${roomCode} All question log:`)
-  itemsData.array.forEach(e => {
+  itemsData.forEach(e => {
     console.log(JSON.stringify(e, null, 2))
   });
   const mappedTracksData = itemsData
